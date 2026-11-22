@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
+import { DEFAULT_PARAMS, normalizeParams, type ChatParams } from './params.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
 export type Locale = 'zh-CN' | 'en-US'
@@ -7,15 +8,15 @@ export type Locale = 'zh-CN' | 'en-US'
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、默认请求参数、侧边栏收起状态 */
 type Settings = {
   apiKey: string | null
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
   ttsVoice: TtsVoice
-  thinking: boolean
-  search: boolean
+  /** 新对话的默认请求参数；单个对话可在会话里覆盖 */
+  params: ChatParams
   siderCollapsed: boolean
 }
 
@@ -25,9 +26,14 @@ const KEYS = {
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
   ttsVoice: 'chat-demo:tts-voice',
+  params: 'chat-demo:params',
+  siderCollapsed: 'chat-demo:sider-collapsed',
+} as const
+
+/** 旧版把思考、搜索单独存成字符串；首次读取参数时迁移一次 */
+const LEGACY_KEYS = {
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
-  siderCollapsed: 'chat-demo:sider-collapsed',
 } as const
 
 const read = (key: string) => {
@@ -87,14 +93,31 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+/** 未保存过参数时沿用旧版的思考、搜索开关，其余取默认值 */
+const initialParams = (): ChatParams => {
+  const saved = read(KEYS.params)
+  if (saved) {
+    try {
+      return normalizeParams(JSON.parse(saved))
+    } catch {
+      // 存储内容损坏时按未保存处理
+    }
+  }
+  const migrated = normalizeParams({
+    ...DEFAULT_PARAMS,
+    thinking: read(LEGACY_KEYS.thinking) === 'true',
+    search: read(LEGACY_KEYS.search) === 'true',
+  })
+  return migrated
+}
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
   ttsVoice: initialTtsVoice(),
-  thinking: read(KEYS.thinking) === 'true',
-  search: read(KEYS.search) === 'true',
+  params: initialParams(),
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
 }))
 
@@ -124,14 +147,15 @@ export const setApiKey = (apiKey: string | null) => {
   useSettings.setState({ apiKey })
 }
 
-export const setThinking = (thinking: boolean) => {
-  write(KEYS.thinking, String(thinking))
-  useSettings.setState({ thinking })
+export const setParams = (params: ChatParams) => {
+  const next = normalizeParams(params)
+  write(KEYS.params, JSON.stringify(next))
+  useSettings.setState({ params: next })
 }
 
-export const setSearch = (search: boolean) => {
-  write(KEYS.search, String(search))
-  useSettings.setState({ search })
+/** 只改指定字段，其余保持当前值；用于聊天框下方的设置面板 */
+export const updateParams = (patch: Partial<ChatParams>) => {
+  setParams({ ...useSettings.getState().params, ...patch })
 }
 
 export const setSiderCollapsed = (siderCollapsed: boolean) => {

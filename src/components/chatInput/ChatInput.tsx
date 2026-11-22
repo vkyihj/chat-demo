@@ -1,15 +1,18 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
+  IconChevronDownOutline14,
   IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
   IconSendOutline16,
   IconStopFill16,
   IconThinkOutline14,
 } from '../base/icons.js'
-import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import { updateParams, useSettings } from '../../services/settings.js'
+import { resolveParams, type ChatParams } from '../../services/params.js'
+import { findModel, useModelCatalog } from '../../services/models.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
+import { sendMessage, setSessionParams, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
   addDraftFiles,
   EMPTY_DRAFT,
@@ -28,6 +31,7 @@ import { DragMask, useFileDrop } from './DragMask.js'
 import { showToast } from '../base/toastState.js'
 import { ACCEPT, useUploads } from '../../services/attachments.js'
 import { DraftAttachments } from './DraftAttachments.js'
+import { ParamsPanel } from './ParamsPanel.js'
 import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
 import { Spectrum } from './Spectrum.js'
@@ -49,10 +53,18 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const streaming = useChatStore(
     (state) => sessionId !== null && Object.hasOwn(state.streaming, sessionId)
   )
-  const thinking = useSettings((state) => state.thinking)
+  const defaultParams = useSettings((state) => state.params)
+  const sessionParams = useChatStore((state) =>
+    sessionId === null ? undefined : state.sessionCache[sessionId]?.params
+  )
+  const params = resolveParams(defaultParams, sessionParams)
+  const models = useModelCatalog((state) => state.models)
+  const model = findModel(params.model, models)
+  const supportsImages =
+    model.inputModalities.length === 0 || model.inputModalities.includes('image')
+  const [paramsOpen, setParamsOpen] = useState(false)
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
-  const search = useSettings((state) => state.search)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -74,8 +86,18 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     return () => observer.disconnect()
   }, [t])
 
-  const acceptFiles = (files: File[]) => {
-    if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
+  const acceptFiles = (input: File[]) => {
+    if (input.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
+      return
+    }
+    // 模型不支持图片时只接收其余附件，并提示原因
+    const files = supportsImages
+      ? input
+      : input.filter((file) => !file.type.startsWith('image/'))
+    if (files.length < input.length) {
+      showToast(t('modelNoImageSupport'))
+    }
+    if (files.length === 0) {
       return
     }
     const error = addDraftFiles(sessionId, files, useSettings.getState().apiKey ?? '')
@@ -126,6 +148,15 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     [cancelVoice]
   )
 
+  /** 当前对话改会话覆盖值；欢迎页改全局默认值 */
+  const updateChatParams = (patch: Partial<ChatParams>) => {
+    if (sessionId === null) {
+      updateParams(patch)
+    } else {
+      setSessionParams(sessionId, patch)
+    }
+  }
+
   // 移动端录音时用频谱替代输入框内容
   const recording = voice.status === 'recording'
 
@@ -138,6 +169,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       voice.status !== 'idle' ||
       !prepareDraftMessage(getDraft(sessionId), useUploads.getState().tasks)
     ) {
+      return
+    }
+    // 已附带的图片在切换到纯文本模型后不再允许发送，避免服务端直接报错
+    if (!supportsImages && attachments.some((item) => item.isImage)) {
+      showToast(t('modelNoImageSupport'))
       return
     }
     // 文本与上传完成态由提交动作读取最新快照，不使用上一次渲染的草稿。
@@ -205,10 +241,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           <Tooltip content={t('deactivatedThinkTooltip')}>
             <button
               type="button"
-              className={clsx(styles.toggle, thinking && styles.selected)}
+              className={clsx(styles.toggle, params.thinking && styles.selected)}
               aria-label={t('thinkingSwitch')}
-              aria-pressed={thinking}
-              onClick={() => setThinking(!thinking)}
+              aria-pressed={params.thinking}
+              onClick={() => updateChatParams({ thinking: !params.thinking })}
             >
               <IconThinkOutline14 />
               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
@@ -217,16 +253,26 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           <Tooltip content={t('deactivatedSearchTooltip')}>
             <button
               type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
+              className={clsx(styles.toggle, params.search && styles.selected)}
               aria-label={t('search')}
-              aria-pressed={search}
-              onClick={() => setSearch(!search)}
+              aria-pressed={params.search}
+              onClick={() => updateChatParams({ search: !params.search })}
             >
               <IconGlobeLanguageOutline14 />
               <span className={styles.toggleLabel}>{t('search')}</span>
             </button>
           </Tooltip>
         </div>
+        <button
+          type="button"
+          className={styles.modelChip}
+          aria-label={t('paramsButton')}
+          title={t('paramsButton')}
+          onClick={() => setParamsOpen(true)}
+        >
+          <span className={styles.modelChipLabel}>{model.name ?? model.id}</span>
+          <IconChevronDownOutline14 />
+        </button>
         <div className={styles.right}>
           <VoiceButton
             status={voice.status}
@@ -286,6 +332,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       {dragging ? <DragMask /> : null}
+      <ParamsPanel open={paramsOpen} sessionId={sessionId} onClose={() => setParamsOpen(false)} />
     </div>
   )
 }

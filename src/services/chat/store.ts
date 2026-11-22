@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
-import type { ChatModel, CreateMessageRequest } from '../api/types.js'
+import type { CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import {
   cancelUpload,
@@ -10,6 +10,7 @@ import {
   uploadAttachment,
   useUploads,
 } from '../attachments.js'
+import { patchParams, resolveParams, type ChatParams } from '../params.js'
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
@@ -38,29 +39,53 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
-const MODEL: ChatModel = 'deepseek-flash'
 /** 所有生成请求统一携带的助手身份说明 */
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
-/** 安全审核固定开启，所有请求都走扩展模式 */
-const SAFETY_CHECK = { level: 'high' } as const
 /** 服务端判定 file_id 失效后，重新补传并重发的最多次数（不含首次请求） */
 const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
 const FILE_RETRY_BASE_DELAY = 1000
 
-/** 阅读链接始终开启，智能搜索开关控制是否另行声明搜索工具（含边想边搜）。 */
-const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
-  const tools: CreateMessageRequest['tools'] = [
-    { type: 'deepseek_read_url', name: 'deepseek_read_url' },
-  ]
+/** 阅读链接与联网搜索各自独立声明；开启搜索时，思考模式下即为边想边搜。 */
+const serverTools = ({ search, readUrl }: ChatParams): CreateMessageRequest['tools'] => {
+  const tools: CreateMessageRequest['tools'] = []
+  if (readUrl) {
+    tools.push({ type: 'deepseek_read_url', name: 'deepseek_read_url' })
+  }
   if (search) {
     tools.push({ type: 'deepseek_web_search', name: 'deepseek_web_search' })
   }
   return tools
 }
+
+/** 全局默认 + 当前会话覆盖 → 本次请求参数 */
+const paramsFor = (session: Session | null | undefined): ChatParams =>
+  resolveParams(useSettings.getState().params, session?.params)
+
+/**
+ * 组装 Messages API 请求体：只下发生效的字段，
+ * 思考模式下的 temperature / top_p 会被服务端忽略，因此不发。
+ */
+const requestBody = (
+  params: ChatParams,
+  messages: CreateMessageRequest['messages'],
+  withTitle: boolean
+): CreateMessageRequest => ({
+  model: params.model,
+  system: SYSTEM_PROMPT,
+  messages,
+  thinking: { type: params.thinking ? 'enabled' : 'disabled' },
+  ...(params.thinking && params.effort ? { output_config: { effort: params.effort } } : {}),
+  ...(params.maxTokens !== null ? { max_tokens: params.maxTokens } : {}),
+  ...(!params.thinking && params.temperature !== null ? { temperature: params.temperature } : {}),
+  ...(!params.thinking && params.topP !== null ? { top_p: params.topP } : {}),
+  ...(params.stopSequences.length > 0 ? { stop_sequences: params.stopSequences } : {}),
+  tools: serverTools(params),
+  safety_check: { level: params.safetyLevel },
+  ...(withTitle ? { title: { enabled: true } } : {}),
+})
 
 /** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
 const titleRequests = new Set<AbortController>()
@@ -259,21 +284,19 @@ export const bindChatPersistence = () => {
   }
 }
 
-/** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
-const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
-  return {
-    id: createId(),
-    role: 'assistant',
-    createdAt: Date.now(),
-    model: MODEL,
-    thinking,
-    search,
-    prefix: true,
-    status: 'pending',
-    blocks: [],
-  }
-}
+/** 按生效参数创建回复；model / thinking / search 同时写入，兼容旧界面与历史数据。 */
+const createReply = (params: ChatParams): AssistantMessage => ({
+  id: createId(),
+  role: 'assistant',
+  createdAt: Date.now(),
+  model: params.model,
+  thinking: params.thinking,
+  search: params.search,
+  params,
+  prefix: true,
+  status: 'pending',
+  blocks: [],
+})
 
 /** 仍在生成中的回复（页面关闭或导出时未结束）按「已停止」处理 */
 const settleInterrupted = (session: Session): Session => {
@@ -606,7 +629,7 @@ export const sendMessage = (targetSessionId: string | null) => {
     })),
     createdAt: now,
   }
-  const reply = createReply()
+  const reply = createReply(paramsFor(getSession(sessionId)))
   updateSession(sessionId, (session) => ({
     ...appendBranch(session, history.at(-1)?.id ?? null, [question, reply]),
     updatedAt: now,
@@ -640,7 +663,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     return
   }
   const history = path.slice(0, index - 1)
-  const reply = createReply()
+  const reply = createReply(paramsFor(getSession(sessionId)))
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, question.id, [reply]),
     updatedAt: Date.now(),
@@ -672,7 +695,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     files: previous.files,
     createdAt: Date.now(),
   }
-  const reply = createReply()
+  const reply = createReply(paramsFor(getSession(sessionId)))
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, path[index - 1]?.id ?? null, [question, reply]),
     updatedAt: Date.now(),
@@ -713,13 +736,14 @@ export const continueReply = (sessionId: string, messageId: string) => {
   ) {
     return
   }
-  const { thinking, search } = useSettings.getState()
+  const params = previous.params ?? paramsFor(session)
   const reply: AssistantMessage = {
     ...previous,
-    // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
-    thinking: previous.thinking ?? thinking,
-    search: previous.search ?? search,
+    // 未记录请求配置的回复，续写时使用当前参数；否则沿用原快照。
+    model: params.model,
+    thinking: params.thinking,
+    search: params.search,
+    params,
     status: 'pending',
     stopReason: undefined,
     stopDetails: undefined,
@@ -758,6 +782,28 @@ export const retryUpload = (sessionId: string, messageId: string) => {
 }
 
 type Request = { history: Message[]; question: UserMessage; prefix?: AssistantMessage }
+
+/** 修改当前会话的请求参数；写入完整快照，之后全局默认变化不再影响该会话 */
+export const setSessionParams = (sessionId: string, patch: Partial<ChatParams>) => {
+  updateSession(sessionId, (session) => ({
+    ...session,
+    params: patchParams(paramsFor(session), patch),
+  }))
+  persist(sessionId)
+}
+
+/** 清空会话覆盖，重新跟随全局默认 */
+export const resetSessionParams = (sessionId: string) => {
+  updateSession(sessionId, (session) => {
+    if (!Object.hasOwn(session, 'params')) {
+      return session
+    }
+    const next = { ...session }
+    delete next.params
+    return next
+  })
+  persist(sessionId)
+}
 
 /**
  * 将 serverId 写回所有引用同一附件的消息。传入 null 会清除超限旧图的 ID，触发补传。
@@ -1013,24 +1059,17 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
+        const params = initial.params ?? paramsFor(getSession(sessionId))
         const messages = toRequestMessages(
           prepared.history,
           prepared.question,
           prepared.prefix,
-          initial.thinking ?? false,
+          params.thinking,
           latestReminder
         )
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
-          {
-            model: initial.model ?? MODEL,
-            system: SYSTEM_PROMPT,
-            messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
-          },
+          requestBody(params, messages, titleRequests.has(controller)),
           controller.signal
         )
         const blockIndexes = new Map<number, number>()

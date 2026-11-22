@@ -1,5 +1,6 @@
 import type { TranslationMessage } from '../../i18n/index.js'
 import type { ApiErrorKind } from '../api/client.js'
+import type { ChatParams } from '../params.js'
 import type {
   ChatModel,
   MessageUsage,
@@ -83,6 +84,8 @@ export type AssistantMessage = MessageBranch & {
   thinking?: boolean
   /** 请求时是否声明 deepseek_web_search；关闭时仍声明 deepseek_read_url */
   search?: boolean
+  /** 本轮请求的完整参数快照；旧数据或缺省时按当前设置补算，续写沿用此快照 */
+  params?: ChatParams
   /** 本轮请求的系统信息快照；各回答版本独立保存，续写沿用。历史消息中缺省的快照保持为空。 */
   latestReminder?: string
   /** 是否允许作为续写前缀；仍需满足回复状态与内容限制。 */
@@ -116,6 +119,8 @@ export type Session = {
   messages: Message[]
   /** undefined 表示线性消息列表；null 表示空会话。 */
   rootMessageId?: string | null
+  /** 本会话覆盖的请求参数；缺省字段由全局默认补足，undefined 表示完全跟随全局 */
+  params?: ChatParams
 }
 
 /** 会话列表元数据；消息只在打开会话时加载。 */

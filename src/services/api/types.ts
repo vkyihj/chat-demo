@@ -4,7 +4,11 @@
  * 声明 deepseek_web_search / deepseek_read_url 或设置 safety_check.level 为 high 时进入扩展模式。
  */
 
-export type ChatModel = 'deepseek-flash' | 'deepseek-v4-pro'
+/**
+ * 模型 ID：官方文档给 deepseek-flash / deepseek-v4-pro，也接受 Claude 名称别名；
+ * 以 GET /models 的返回为准，因此这里不限定字面量。
+ */
+export type ChatModel = string
 
 // ---------- 响应：内容块 ----------
 
@@ -177,8 +181,18 @@ export type CreateMessageRequest = {
   system: string
   messages: MessageParam[]
   thinking: { type: 'enabled' | 'disabled' }
+  /** 思考强度；仅在开启思考时下发，省略时由服务端取模型默认档位 */
+  output_config?: { effort: string }
+  /** 输出 token 上限；省略时使用服务端默认值 */
+  max_tokens?: number
+  /** 0–2；思考模式下服务端固定为 1 */
+  temperature?: number
+  /** 核采样概率；不同模型在思考模式下的处理方式不同 */
+  top_p?: number
+  /** 最多 16 条，命中即停止 */
+  stop_sequences?: string[]
   tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]
-  safety_check: { level: 'high' }
+  safety_check: { level: 'low' | 'high' }
   title?: { enabled: boolean }
 }
 
