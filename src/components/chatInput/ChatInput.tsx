@@ -270,6 +270,17 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           title={t('paramsButton')}
           onClick={() => setParamsOpen(true)}
         >
+          {/* 移动端隐藏了两颗开关按钮，这里用小图标标出当前开启的能力 */}
+          {params.thinking ? (
+            <span className={styles.chipFlag} aria-hidden>
+              <IconThinkOutline14 />
+            </span>
+          ) : null}
+          {params.search ? (
+            <span className={styles.chipFlag} aria-hidden>
+              <IconGlobeLanguageOutline14 />
+            </span>
+          ) : null}
           <span className={styles.modelChipLabel}>{model.name ?? model.id}</span>
           <IconChevronDownOutline14 />
         </button>

@@ -364,7 +364,40 @@
 }
 
 .modelChipLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 胶囊内的能力指示：开启时显示对应图标 */
+.chipFlag {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--dsw-alias-brand-text);
+}
+
+
+/* 触摸时不要残留系统高亮；键盘聚焦仍给出可见描边 */
+.toggle,
+.modelChip {
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--dsw-alias-button-primary-fill);
+  }
+}
+
+/* 移动端：两颗能力开关收进模型面板，底部只留模型胶囊与右侧操作 */
+@media (max-width: 767px) {
+  .toggles {
+    display: none;
+  }
+
+  .modelChip {
+    max-width: 48vw;
+    margin-right: auto;
+  }
 }
