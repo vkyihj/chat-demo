@@ -216,12 +216,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               event.currentTarget.focus({ preventScroll: true })
             }
           }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              send()
-            }
-          }}
+          // 本分支改动：回车只换行，发送仅由发送按钮触发
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files)
             if (files.length > 0) {

@@ -1,17 +1,22 @@
 # chat-demo
 
+> **分支说明：** 本仓库是 DeepSeek 官方项目
+> [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo) 的分支，
+> 并非官方仓库，也不代表 DeepSeek 维护或认可；文中的在线体验与 Releases 均指上游项目。
+> 本地改动见下文「本地改动」。
+
 [English](README.md) | 简体中文
 
 基于 DeepSeek API 的静态聊天示例。无需应用后端，浏览器直接请求配置的 API 服务。
 
-点击 [在线体验](https://deepseek-ai.github.io/chat-demo/) 即可使用，也可以前往 [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases) 下载压缩包，解压后双击 `index.html` 在本地使用，无需安装或构建。首次使用时，请在设置中填写 API Key。
+点击上游项目的 [在线体验](https://deepseek-ai.github.io/chat-demo/) 即可使用，也可以前往上游的 [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases) 下载压缩包，解压后双击 `index.html` 在本地使用，无需安装或构建。首次使用时，请在设置中填写 API Key。
 
 ## 运行
 
 准备 Node.js 22.12+ 和 pnpm：
 
 ```sh
-git clone https://github.com/deepseek-ai/chat-demo.git
+git clone https://github.com/vkyihj/chat-demo.git
 cd chat-demo
 pnpm install
 pnpm dev
@@ -69,6 +74,13 @@ src/
     speech/            录音与朗读
   utils/               通用工具
 ```
+
+## 本地改动
+
+本分支与上游相比，修改了消息的发送方式：
+
+- 回车只插入换行，Shift+回车同样换行。
+- 发送消息和提交消息编辑，只能点击发送按钮。
 
 ## 许可证
 

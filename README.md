@@ -1,17 +1,23 @@
 # chat-demo
 
+> **Fork notice:** This repository is a fork of the official DeepSeek
+> [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo). It is not
+> maintained or endorsed by DeepSeek; the online demo and releases below refer
+> to the upstream project. Local changes are listed in
+> [Local modifications](#local-modifications).
+
 English | [简体中文](README.zh-CN.md)
 
 A static chat demo powered by the DeepSeek API. No application backend is required: the browser connects directly to the configured API service.
 
-You can [try the app online](https://deepseek-ai.github.io/chat-demo/) or download the archive from [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases), extract it, and double-click `index.html` to use it locally without installation or a build. Enter your API key in Settings before your first chat.
+You can [try the upstream app online](https://deepseek-ai.github.io/chat-demo/) or download the archive from the upstream [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases), extract it, and double-click `index.html` to use it locally without installation or a build. Enter your API key in Settings before your first chat.
 
 ## Getting started
 
 Install Node.js 22.12+ and pnpm, then run:
 
 ```sh
-git clone https://github.com/deepseek-ai/chat-demo.git
+git clone https://github.com/vkyihj/chat-demo.git
 cd chat-demo
 pnpm install
 pnpm dev
@@ -69,6 +75,13 @@ src/
     speech/            Audio recording and read-aloud playback
   utils/               Shared utilities
 ```
+
+## Local modifications
+
+This fork changes how messages are sent compared with upstream:
+
+- Enter inserts a newline, with or without Shift.
+- Messages and message edits are sent only by clicking the Send button.
 
 ## License
 
