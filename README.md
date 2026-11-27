@@ -5,6 +5,8 @@
 > maintained or endorsed by DeepSeek; the online demo and releases below refer
 > to the upstream project. Local changes are listed in
 > [Local modifications](#local-modifications).
+>
+> upstream: `v0.1.4` (`cdf9617`)
 
 English | [简体中文](README.zh-CN.md)
 

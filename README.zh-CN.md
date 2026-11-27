@@ -4,6 +4,8 @@
 > [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo) 的分支，
 > 并非官方仓库，也不代表 DeepSeek 维护或认可；文中的在线体验与 Releases 均指上游项目。
 > 本地改动见下文「本地改动」。
+>
+> upstream: `v0.1.4`（对应上游 commit cdf9617）
 
 [English](README.md) | 简体中文
 
