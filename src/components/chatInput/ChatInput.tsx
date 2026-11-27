@@ -62,6 +62,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const model = findModel(params.model, models)
   const supportsImages =
     model.inputModalities.length === 0 || model.inputModalities.includes('image')
+  // 联网工具按模型裁剪：不支持时开关只做说明，不写入参数，也不会进请求
+  const serverToolsSupported = model.capabilities.serverTools
+  const searchActive = serverToolsSupported && params.search
   const [paramsOpen, setParamsOpen] = useState(false)
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
@@ -245,13 +248,28 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
             </button>
           </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
+          <Tooltip
+            content={
+              serverToolsSupported ? t('deactivatedSearchTooltip') : t('searchUnsupportedTooltip')
+            }
+          >
             <button
               type="button"
-              className={clsx(styles.toggle, params.search && styles.selected)}
+              className={clsx(
+                styles.toggle,
+                searchActive && styles.selected,
+                !serverToolsSupported && styles.toggleDisabled
+              )}
               aria-label={t('search')}
-              aria-pressed={params.search}
-              onClick={() => updateChatParams({ search: !params.search })}
+              aria-pressed={searchActive}
+              aria-disabled={!serverToolsSupported}
+              onClick={() => {
+                if (serverToolsSupported) {
+                  updateChatParams({ search: !params.search })
+                } else {
+                  showToast(t('searchUnsupportedTooltip'))
+                }
+              }}
             >
               <IconGlobeLanguageOutline14 />
               <span className={styles.toggleLabel}>{t('search')}</span>
@@ -271,7 +289,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               <IconThinkOutline14 />
             </span>
           ) : null}
-          {params.search ? (
+          {searchActive ? (
             <span className={styles.chipFlag} aria-hidden>
               <IconGlobeLanguageOutline14 />
             </span>

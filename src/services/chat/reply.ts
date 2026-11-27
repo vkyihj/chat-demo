@@ -218,12 +218,14 @@ const toUserParam = ({ content, files }: UserMessage): MessageParam => {
  * - 文本块去掉 citations（服务端忽略）。相邻文本直接拼接，被思考或工具隔开的文本用空行连接；
  *   省略历史思考后仍保留其前后正文的空行；
  * - 工具调用和结果只保留 kind 为 read_link 的块，其他历史工具块不回传；
+ * - 当前模型不支持联网工具时，历史里的服务端工具块一并省略，否则整个请求会被拒绝；
  * - 阅读链接结果原样回传，保留 signature：服务端解密后将页面拼回该轮提问末尾；
  */
 const toAssistantParam = (
   { blocks }: AssistantMessage,
   prefix = false,
-  thinking = false
+  thinking = false,
+  serverTools = true
 ): Extract<MessageParam, { role: 'assistant' }> => {
   const content: AssistantBlockParam[] = []
   // 成功阅读的网页靠签名恢复正文；缺少有效签名时，调用与结果都不回传。
@@ -263,6 +265,7 @@ const toAssistantParam = (
       const { type, thinking, signature } = block
       content.push({ type, thinking, signature: signature ?? '' })
     } else if (
+      serverTools &&
       block.type === 'server_tool_use' &&
       block.kind === 'read_link' &&
       !unsignedReadLinks.has(block.id)
@@ -270,6 +273,7 @@ const toAssistantParam = (
       const { type, id, name, input, kind } = block
       content.push({ type, id, name, input, kind })
     } else if (
+      serverTools &&
       block.type === 'web_fetch_tool_result' &&
       block.kind === 'read_link' &&
       !unsignedReadLinks.has(block.tool_use_id)
@@ -305,7 +309,8 @@ export const toRequestMessages = (
   question: UserMessage,
   prefix?: AssistantMessage,
   thinking = prefix?.thinking ?? false,
-  latestReminder?: string
+  latestReminder?: string,
+  serverTools = true
 ): MessageParam[] => {
   const messages: MessageParam[] = []
   let previousReminder: string | undefined
@@ -322,12 +327,12 @@ export const toRequestMessages = (
       continue
     }
     appendReminder(reply.latestReminder)
-    messages.push(toUserParam(user), toAssistantParam(reply))
+    messages.push(toUserParam(user), toAssistantParam(reply, false, false, serverTools))
   }
   appendReminder(latestReminder)
   messages.push(toUserParam(question))
   if (prefix?.prefix) {
-    const assistant = toAssistantParam(prefix, true, thinking)
+    const assistant = toAssistantParam(prefix, true, thinking, serverTools)
     // 没有非空白正文或有效思考时直接重发原问题，避免服务端拒绝空 Prefill。
     if (
       assistant.content.some(

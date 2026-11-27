@@ -142,6 +142,8 @@ export const en = {
   deactivatedThinkTooltip: 'Think before responding to solve reasoning problems',
   thinkingSwitch: 'DeepThink',
   deactivatedSearchTooltip: 'Search the web when necessary',
+  searchUnsupportedTooltip:
+    'This model does not support web search. Switch models in Model & parameters.',
   search: 'Search',
   uploadFile: 'Upload files',
   chatInputStopButtonTooltip: 'Stop',
@@ -191,6 +193,10 @@ export const en = {
   paramsMaxOutput: 'Up to {count} output tokens',
   paramsSupportsImages: 'Image input supported',
   paramsNoImages: 'No image input',
+  paramsServerToolsUnsupported:
+    'This model does not support web search or link reading; both are turned off automatically.',
+  paramsTitleUnsupported:
+    'This model does not generate automatic titles; rename chats manually in the list.',
   paramsCapabilitiesGroup: 'Capabilities',
   paramsThinking: 'Deep thinking',
   paramsThinkingHint: 'Think before answering; search becomes deep-search in thinking mode',

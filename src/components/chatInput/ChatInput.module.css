@@ -281,7 +281,8 @@
     background-color: var(--dsw-alias-interactive-bg-hover);
   }
 
-  &:disabled {
+  &:disabled,
+  &.toggleDisabled {
     opacity: 0.4;
     cursor: not-allowed;
   }

@@ -30,16 +30,19 @@ const formatCount = (value: number): string => value.toLocaleString()
 const ToggleChip = ({
   active,
   label,
+  disabled = false,
   onClick,
 }: {
   active: boolean
   label: string
+  disabled?: boolean
   onClick: () => void
 }) => (
   <button
     type="button"
     className={clsx(styles.chip, active && styles.chipActive)}
     aria-pressed={active}
+    disabled={disabled}
     onClick={onClick}
   >
     {label}
@@ -193,6 +196,8 @@ export const ParamsPanel = ({
 
   const temperatureDisabled = params.thinking
   const effortLevels = effortOptions(model)
+  // 模型不支持联网工具与自动标题时，这两类能力在请求里会被裁掉，界面同步置灰
+  const { serverTools: serverToolsSupported, title: titleSupported } = model.capabilities
 
   return (
     <Modal
@@ -242,17 +247,26 @@ export const ParamsPanel = ({
             onClick={() => update({ thinking: !params.thinking })}
           />
           <ToggleChip
-            active={params.search}
+            active={serverToolsSupported && params.search}
             label={t('paramsSearch')}
+            disabled={!serverToolsSupported}
             onClick={() => update({ search: !params.search })}
           />
           <ToggleChip
-            active={params.readUrl}
+            active={serverToolsSupported && params.readUrl}
             label={t('paramsReadUrl')}
+            disabled={!serverToolsSupported}
             onClick={() => update({ readUrl: !params.readUrl })}
           />
         </div>
         <div className={styles.hint}>{t('paramsThinkingHint')}</div>
+        {serverToolsSupported && titleSupported ? null : (
+          <div className={styles.warn}>
+            {serverToolsSupported ? null : t('paramsServerToolsUnsupported')}
+            {!serverToolsSupported && !titleSupported ? ' ' : null}
+            {titleSupported ? null : t('paramsTitleUnsupported')}
+          </div>
+        )}
         {params.thinking ? (
           <div className={styles.field}>
             <span className={styles.fieldLabel}>{t('paramsEffort')}</span>

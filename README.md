@@ -82,6 +82,11 @@ This fork changes how messages are sent compared with upstream:
 
 - Enter inserts a newline, with or without Shift.
 - Messages and message edits are sent only by clicking the Send button.
+- Model capabilities are trimmed per model: `deepseek-v4-pro` does not support
+  server-side tools or automatic titles, so requests omit `deepseek_web_search`,
+  `deepseek_read_url`, and `title`, and the related toggles are disabled. If the
+  server still reports those features as unavailable, the client narrows the
+  model's capabilities and retries once.
 
 ## License
 

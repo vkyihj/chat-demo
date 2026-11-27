@@ -83,6 +83,11 @@
     background-color: var(--dsw-alias-button-ghost-active-fill);
     color: var(--dsw-alias-brand-text);
   }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 }
 
 .grid {

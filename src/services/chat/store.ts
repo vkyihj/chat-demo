@@ -10,6 +10,7 @@ import {
   uploadAttachment,
   useUploads,
 } from '../attachments.js'
+import { modelCapabilities, restrictModelCapabilities, type ModelCapabilities } from '../models.js'
 import { patchParams, resolveParams, type ChatParams } from '../params.js'
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -48,9 +49,18 @@ const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
 const FILE_RETRY_BASE_DELAY = 1000
 
-/** 阅读链接与联网搜索各自独立声明；开启搜索时，思考模式下即为边想边搜。 */
-const serverTools = ({ search, readUrl }: ChatParams): CreateMessageRequest['tools'] => {
+/**
+ * 阅读链接与联网搜索各自独立声明；开启搜索时，思考模式下即为边想边搜。
+ * 模型不支持联网工具（如 deepseek-v4-pro）时一律不声明，否则服务端会拒绝整个请求。
+ */
+const serverTools = (
+  { search, readUrl }: ChatParams,
+  capabilities: ModelCapabilities
+): CreateMessageRequest['tools'] => {
   const tools: CreateMessageRequest['tools'] = []
+  if (!capabilities.serverTools) {
+    return tools
+  }
   if (readUrl) {
     tools.push({ type: 'deepseek_read_url', name: 'deepseek_read_url' })
   }
@@ -65,6 +75,40 @@ const paramsFor = (session: Session | null | undefined): ChatParams =>
   resolveParams(useSettings.getState().params, session?.params)
 
 /**
+ * 识别服务端「扩展能力不可用」的 400，例如：
+ * The server-side tool calls (deepseek_web_search, deepseek_read_url) and the title
+ * generation feature are unavailable for model deepseek-v4-pro.
+ * 返回需要关闭的能力；不是这类报错时返回 null。
+ */
+const unsupportedCapabilities = (error: unknown): Partial<ModelCapabilities> | null => {
+  if (!(error instanceof ApiError) || error.kind !== 'http' || error.status !== 400) {
+    return null
+  }
+  const message = error.message.toLowerCase()
+  // 只有「能力不可用」一类报错才降级，避免把普通参数错误也当成模型限制
+  const unavailable =
+    message.includes('unavailable') ||
+    message.includes('not support') ||
+    message.includes('不可用') ||
+    message.includes('不支持')
+  if (!unavailable) {
+    return null
+  }
+  const serverTools =
+    message.includes('server-side tool') ||
+    message.includes('deepseek_web_search') ||
+    message.includes('服务端工具')
+  const title = message.includes('title generation') || message.includes('标题生成')
+  if (!serverTools && !title) {
+    return null
+  }
+  return {
+    ...(serverTools ? { serverTools: false } : {}),
+    ...(title ? { title: false } : {}),
+  }
+}
+
+/**
  * 组装 Messages API 请求体：只下发生效的字段，
  * 思考模式下的 temperature / top_p 会被服务端忽略，因此不发。
  */
@@ -72,20 +116,23 @@ const requestBody = (
   params: ChatParams,
   messages: CreateMessageRequest['messages'],
   withTitle: boolean
-): CreateMessageRequest => ({
-  model: params.model,
-  system: SYSTEM_PROMPT,
-  messages,
-  thinking: { type: params.thinking ? 'enabled' : 'disabled' },
-  ...(params.thinking && params.effort ? { output_config: { effort: params.effort } } : {}),
-  ...(params.maxTokens !== null ? { max_tokens: params.maxTokens } : {}),
-  ...(!params.thinking && params.temperature !== null ? { temperature: params.temperature } : {}),
-  ...(!params.thinking && params.topP !== null ? { top_p: params.topP } : {}),
-  ...(params.stopSequences.length > 0 ? { stop_sequences: params.stopSequences } : {}),
-  tools: serverTools(params),
-  safety_check: { level: params.safetyLevel },
-  ...(withTitle ? { title: { enabled: true } } : {}),
-})
+): CreateMessageRequest => {
+  const capabilities = modelCapabilities(params.model)
+  return {
+    model: params.model,
+    system: SYSTEM_PROMPT,
+    messages,
+    thinking: { type: params.thinking ? 'enabled' : 'disabled' },
+    ...(params.thinking && params.effort ? { output_config: { effort: params.effort } } : {}),
+    ...(params.maxTokens !== null ? { max_tokens: params.maxTokens } : {}),
+    ...(!params.thinking && params.temperature !== null ? { temperature: params.temperature } : {}),
+    ...(!params.thinking && params.topP !== null ? { top_p: params.topP } : {}),
+    ...(params.stopSequences.length > 0 ? { stop_sequences: params.stopSequences } : {}),
+    tools: serverTools(params, capabilities),
+    safety_check: { level: params.safetyLevel },
+    ...(withTitle && capabilities.title ? { title: { enabled: true } } : {}),
+  }
+}
 
 /** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
 const titleRequests = new Set<AbortController>()
@@ -1043,9 +1090,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
     updateReply(sessionId, reply)
   }
   streamFlushes.set(sessionId, flush)
+  const params = initial.params ?? paramsFor(getSession(sessionId))
 
   try {
     for (let attempt = 0; ; attempt += 1) {
+      // 每轮都重新读取能力：服务端可能在本轮退让后收窄该模型的扩展能力。
+      const capabilities = modelCapabilities(params.model)
       /** 附件补齐前出错属于上传失败，请求还没有发出 */
       let preparing = true
       let receivedContent = false
@@ -1059,13 +1109,13 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
-        const params = initial.params ?? paramsFor(getSession(sessionId))
         const messages = toRequestMessages(
           prepared.history,
           prepared.question,
           prepared.prefix,
           params.thinking,
-          latestReminder
+          latestReminder,
+          capabilities.serverTools
         )
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
@@ -1109,6 +1159,14 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             retryable: isRetryableApiError(error),
           })
           break
+        }
+        // 服务端声明该模型不支持联网工具或自动标题：收窄能力后立即重发，
+        // 只要还有可用的能力就继续本轮，避免整次回答因扩展能力失败。
+        if (!receivedContent) {
+          const patch = unsupportedCapabilities(error)
+          if (patch && restrictModelCapabilities(params.model, patch)) {
+            continue
+          }
         }
         // 附件失效：重新补传后重发。收到过内容块（含丢弃的客户端工具）后不自动重发。
         if (
